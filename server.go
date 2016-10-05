@@ -18,7 +18,8 @@ var (
 		Action: cmdStartServer,
 	}
 
-	context []byte
+	SampleSize = 100 * 1024 * 1024
+	//SampleSize = 64 * 1024
 )
 
 func cmdStartServer(c *cli.Context) {
@@ -35,8 +36,6 @@ func doStartServer(c *cli.Context) error {
 
 	os.Remove(sockFile)
 
-	context = []byte(GetRandomString(128 * 1024 * 1024))
-
 	ln, err := net.Listen("unix", sockFile)
 	if err != nil {
 		return err
@@ -52,10 +51,14 @@ func doStartServer(c *cli.Context) error {
 	}
 }
 
-type Processor struct{}
+type Processor struct {
+	Sample []byte
+}
 
 func handleConnection(c net.Conn) {
 	processor := &Processor{}
+	processor.Sample = make([]byte, SampleSize, SampleSize)
+
 	server := rpc.NewServer(c, processor)
 	if err := server.Handle(); err != nil && err != io.EOF {
 		panic(fmt.Sprintf("Fail to start server due to %v", err))
@@ -65,16 +68,19 @@ func handleConnection(c net.Conn) {
 }
 
 func (p *Processor) ReadAt(buf []byte, off int64) (n int, err error) {
-	if off == 0 {
-		copy(buf, context[:len(buf)])
-		return len(buf), nil
+	n = copy(buf, p.Sample[off:off+int64(len(buf))])
+	if n != len(buf) {
+		return 0, fmt.Errorf("Fail to copy completely")
 	}
-	return 0, fmt.Errorf("No data for read")
+	//fmt.Println("Received read at: len, buf", off, len(buf), string(buf[:16]))
+	return n, nil
 }
 
 func (p *Processor) WriteAt(buf []byte, off int64) (n int, err error) {
-	if off == 0 {
-		return len(buf), nil
+	//fmt.Println("Received write at: len, buf", off, len(buf), string(buf[:16]))
+	n = copy(p.Sample[off:], buf)
+	if n != len(buf) {
+		return 0, fmt.Errorf("Fail to copy completely")
 	}
-	return 0, fmt.Errorf("No data for write")
+	return n, nil
 }

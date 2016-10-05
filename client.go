@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net"
+	"reflect"
+	"time"
 
 	"github.com/urfave/cli"
 
@@ -42,6 +44,10 @@ func doStartClient(c *cli.Context) error {
 	if sockFile == "" {
 		return fmt.Errorf("Require unix domain socket location")
 	}
+	requestSize := c.Int("requestsize")
+	if requestSize == 0 {
+		requestSize = 4096
+	}
 
 	conn, err := net.Dial("unix", sockFile)
 	if err != nil {
@@ -51,19 +57,40 @@ func doStartClient(c *cli.Context) error {
 
 	client := rpc.NewClient(conn)
 
-	buf := []byte("request")
-	_, err = client.WriteAt(buf, 0)
-	if err != nil {
-		return err
-	}
-	fmt.Println("Send: ", string(buf))
+	return startTest(client, requestSize)
+}
 
-	buf = make([]byte, 8)
-	_, err = client.ReadAt(buf, 0)
-	if err != nil {
-		return err
+func startTest(client *rpc.Client, requestSize int) error {
+	buf := GetRandomStringBytes(SampleSize)
+	fmt.Println("Sample ready")
+
+	writeStart := time.Now()
+	for offset := 0; offset < SampleSize; offset += requestSize {
+		_, err := client.WriteAt(buf[offset:offset+requestSize], int64(offset))
+		if err != nil {
+			return err
+		}
 	}
-	fmt.Println("Receive: ", string(buf))
+	writeStop := time.Now()
+	writeDuration := writeStop.Sub(writeStart)
+	fmt.Println("Write done in ", writeDuration)
+	fmt.Printf("Write bandwidth %.2f MB/s\n", (float64(SampleSize/(1024*1024)) / writeDuration.Seconds()))
+
+	tmpBuf := make([]byte, requestSize)
+	readStart := time.Now()
+	for offset := 0; offset < SampleSize; offset += requestSize {
+		_, err := client.ReadAt(tmpBuf, int64(offset))
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(tmpBuf, buf[offset:offset+requestSize]) {
+			return fmt.Errorf("Inconsistent at offset %v", offset)
+		}
+	}
+	readStop := time.Now()
+	readDuration := readStop.Sub(readStart)
+	fmt.Println("Read done in ", readDuration)
+	fmt.Printf("Read bandwidth %.2f MB/s\n", (float64(SampleSize/(1024*1024)) / readDuration.Seconds()))
 
 	return nil
 }

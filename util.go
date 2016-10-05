@@ -6,10 +6,10 @@ import (
 
 const letters = "abcdefghijklmnopqretuvwxyz"
 
-func GetRandomString(size int) string {
+func GetRandomStringBytes(size int) []byte {
 	b := make([]byte, size)
 	for i := range b {
 		b[i] = letters[rand.Intn(len(letters))]
 	}
-	return string(b)
+	return b
 }
